@@ -44,6 +44,15 @@ on:
         description: "上传目标，空格分隔，例如: codex2api:0 sub2api:0"
         required: false
         default: "codex2api:0"
+      delete_after_consent:
+        description: "Codex consent 前删除 Team 成员：auto=有管理员 token 时启用"
+        required: false
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - true
+          - false
 
 env:
   CLONE_DIR: codex-manager
@@ -226,6 +235,22 @@ jobs:
               UPLOAD_ARGS+=(--upload-target "$target")
             fi
           done
+          case "${{ inputs.delete_after_consent }}" in
+            auto)
+              if [ -n "${CM_TEAM_ADMIN_ACCESS_TOKEN:-}" ]; then
+                export CM_TEAM_DELETE_AFTER_CONSENT=true
+              else
+                export CM_TEAM_DELETE_AFTER_CONSENT=false
+              fi
+              ;;
+            true|false)
+              export CM_TEAM_DELETE_AFTER_CONSENT="${{ inputs.delete_after_consent }}"
+              ;;
+            *)
+              echo "::error::delete_after_consent must be auto, true, or false"
+              exit 1
+              ;;
+          esac
 
           uv run python -m src.main register \
             --ci \
