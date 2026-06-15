@@ -1,0 +1,199 @@
+name: gitlab-team-register
+
+on:
+  workflow_dispatch:
+    inputs:
+      gitlab_repo:
+        description: "GitLab HTTPS 仓库地址"
+        required: false
+        default: "https://gitlab.com/supreb/codex-manager.git"
+      gitlab_ref:
+        description: "GitLab 分支或标签"
+        required: false
+        default: "master"
+      count:
+        description: "Team 上号数量"
+        required: true
+        default: "1"
+      concurrency:
+        description: "最大并发数"
+        required: false
+        default: "2"
+      engine:
+        description: "浏览器引擎"
+        required: false
+        default: "patchright"
+        type: choice
+        options:
+          - patchright
+          - playwright
+          - camoufox
+      team_mode:
+        description: "Team SSO OAuth 模式"
+        required: true
+        default: "protocol"
+        type: choice
+        options:
+          - protocol
+          - browser
+      upload_targets:
+        description: "上传目标，空格分隔，例如: codex2api:0 sub2api:0"
+        required: false
+        default: "codex2api:0"
+
+env:
+  CLONE_DIR: codex-manager
+  UV_SYSTEM_PYTHON: 1
+  CM_PROXY_STRATEGY: ${{ secrets.CM_PROXY_STRATEGY }}
+  CM_PROXY_STATIC: ${{ secrets.CM_PROXY_STATIC }}
+  CM_SSO_DOMAIN: ${{ secrets.CM_SSO_DOMAIN }}
+  CM_SSO_EMAIL_DOMAIN: ${{ secrets.CM_SSO_EMAIL_DOMAIN }}
+  CM_SSO_WORKSPACE_LABEL: ${{ secrets.CM_SSO_WORKSPACE_LABEL }}
+  CM_SSO_TOTP_SECRET: ${{ secrets.CM_SSO_TOTP_SECRET }}
+  CM_OAUTH_RETRY_COUNT: ${{ secrets.CM_OAUTH_RETRY_COUNT }}
+  CM_TEAM_PROXY: ${{ secrets.CM_TEAM_PROXY }}
+  CM_TEAM_ADMIN_ACCESS_TOKEN: ${{ secrets.CM_TEAM_ADMIN_ACCESS_TOKEN }}
+  CM_TEAM_RANDOM_DOMAIN_ENABLED: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_ENABLED }}
+  CM_TEAM_RANDOM_DOMAIN_ROOT_DOMAIN: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_ROOT_DOMAIN }}
+  CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_ZONE_ID: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_ZONE_ID }}
+  CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_API_TOKEN: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_API_TOKEN }}
+  CM_TEAM_RANDOM_DOMAIN_OPENAI_ADMIN_COOKIE: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_OPENAI_ADMIN_COOKIE }}
+  CM_UPLOAD_CODEX2API_0_API_URL: ${{ secrets.CM_UPLOAD_CODEX2API_0_API_URL }}
+  CM_UPLOAD_CODEX2API_0_ADMIN_KEY: ${{ secrets.CM_UPLOAD_CODEX2API_0_ADMIN_KEY }}
+  CM_UPLOAD_CODEX2API_0_PROXY_URL: ${{ secrets.CM_UPLOAD_CODEX2API_0_PROXY_URL }}
+  CM_UPLOAD_SUB2API_0_API_URL: ${{ secrets.CM_UPLOAD_SUB2API_0_API_URL }}
+  CM_UPLOAD_SUB2API_0_API_KEY: ${{ secrets.CM_UPLOAD_SUB2API_0_API_KEY }}
+
+jobs:
+  register:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Clone GitLab repository
+        shell: bash
+        env:
+          GITLAB_REPO: ${{ inputs.gitlab_repo }}
+          GITLAB_REF: ${{ inputs.gitlab_ref }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_USERNAME: ${{ secrets.GITLAB_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GITLAB_TOKEN:-}" ]; then
+            echo "::error::GITLAB_TOKEN secret is required"
+            exit 1
+          fi
+
+          repo="${GITLAB_REPO:-https://gitlab.com/supreb/codex-manager.git}"
+          ref="${GITLAB_REF:-master}"
+          username="${GITLAB_USERNAME:-oauth2}"
+
+          case "$repo" in
+            https://gitlab.com/*) ;;
+            *)
+              echo "::error::Only https://gitlab.com/... repository URLs are allowed"
+              exit 1
+              ;;
+          esac
+
+          basic_auth="$(printf '%s:%s' "$username" "$GITLAB_TOKEN" | base64 | tr -d '\n')"
+          git -c http.https://gitlab.com/.extraheader="Authorization: Basic ${basic_auth}" \
+            clone --depth 1 --branch "$ref" --single-branch "$repo" "$CLONE_DIR"
+          git -C "$CLONE_DIR" rev-parse --short HEAD
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv
+
+      - name: Install Python dependencies
+        working-directory: ${{ env.CLONE_DIR }}
+        run: uv sync
+
+      - name: Install system deps for browsers
+        if: ${{ inputs.team_mode == 'browser' }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+            libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+            libxdamage1 libxfixes3 libxrandr2 libgbm1 \
+            libpango-1.0-0 libcairo2 libasound2t64 \
+            libatspi2.0-0 libwayland-client0 || true
+
+      - name: Install patchright Chrome
+        if: ${{ inputs.team_mode == 'browser' && inputs.engine == 'patchright' }}
+        working-directory: ${{ env.CLONE_DIR }}
+        run: uv run patchright install chrome --force 2>&1 || uv run patchright install chrome 2>&1 || true
+
+      - name: Install Playwright Chromium
+        if: ${{ inputs.team_mode == 'browser' && inputs.engine == 'playwright' }}
+        working-directory: ${{ env.CLONE_DIR }}
+        run: uv run python -m playwright install chromium
+
+      - name: Install Camoufox
+        if: ${{ inputs.team_mode == 'browser' && inputs.engine == 'camoufox' }}
+        working-directory: ${{ env.CLONE_DIR }}
+        run: uv run python -m camoufox fetch
+
+      - name: Register and upload
+        id: register
+        shell: bash
+        working-directory: ${{ env.CLONE_DIR }}
+        run: |
+          set -euo pipefail
+          UPLOAD_ARGS=()
+          for target in ${{ inputs.upload_targets }}; do
+            if [ -n "$target" ]; then
+              UPLOAD_ARGS+=(--upload-target "$target")
+            fi
+          done
+
+          uv run python -m src.main register \
+            --ci \
+            --provider sso \
+            --team-mode "${{ inputs.team_mode }}" \
+            --engine "${{ inputs.engine }}" \
+            --count "${{ inputs.count }}" \
+            --concurrency "${{ inputs.concurrency }}" \
+            --summary-output register_summary.json \
+            --results-output register_results.json \
+            "${UPLOAD_ARGS[@]}"
+
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          with open("register_summary.json", "r", encoding="utf-8") as f:
+              summary = json.load(f)
+          print(f"success={summary.get('success', 0)}")
+          print(f"upload_success={summary.get('upload_success', 0)}")
+          print(f"exit_reason={summary.get('exit_reason', '')}")
+          PY
+
+      - name: Upload redacted register summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: register-summary
+          path: |
+            ${{ env.CLONE_DIR }}/register_summary.json
+            ${{ env.CLONE_DIR }}/register_results.json
+          retention-days: 7
+
+      - name: Upload register log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: register-log
+          path: ${{ env.CLONE_DIR }}/register.log
+          retention-days: 7
