@@ -25,7 +25,7 @@ jobs:
             --ref "${{ github.ref_name }}" \
             -f gitlab_repo="https://gitlab.com/supreb/codex-manager.git" \
             -f gitlab_ref="master" \
-            -f count="50" \
+            -f count="200" \
             -f containers="5" \
             -f concurrency="1" \
             -f engine="patchright" \
