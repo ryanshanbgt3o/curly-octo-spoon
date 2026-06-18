@@ -133,14 +133,18 @@ jobs:
           )
           effective = min(total, containers)
           base, remainder = divmod(total, effective)
+          offset = 0
+          items = []
+          for index in range(effective):
+              item_count = base + (1 if index < remainder else 0)
+              items.append({
+                  "container": index + 1,
+                  "count": item_count,
+                  "task_offset": offset,
+              })
+              offset += item_count
           matrix = {
-              "include": [
-                  {
-                      "container": index + 1,
-                      "count": base + (1 if index < remainder else 0),
-                  }
-                  for index in range(effective)
-              ]
+              "include": items,
           }
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
@@ -148,8 +152,78 @@ jobs:
               print(f"effective_containers={effective}", file=output)
           PY
 
-  register:
+  prepare-domain-plan:
     needs: prepare-matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+
+    steps:
+      - name: Clone GitLab repository
+        shell: bash
+        env:
+          GITLAB_REPO: ${{ inputs.gitlab_repo }}
+          GITLAB_REF: ${{ inputs.gitlab_ref }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_USERNAME: ${{ secrets.GITLAB_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GITLAB_TOKEN:-}" ]; then
+            echo "::error::GITLAB_TOKEN secret is required"
+            exit 1
+          fi
+
+          repo="${GITLAB_REPO:-https://gitlab.com/supreb/codex-manager.git}"
+          ref="${GITLAB_REF:-master}"
+          username="${GITLAB_USERNAME:-oauth2}"
+
+          case "$repo" in
+            https://gitlab.com/*) ;;
+            *)
+              echo "::error::Only https://gitlab.com/... repository URLs are allowed"
+              exit 1
+              ;;
+          esac
+
+          basic_auth="$(printf '%s:%s' "$username" "$GITLAB_TOKEN" | base64 | tr -d '\n')"
+          git -c http.https://gitlab.com/.extraheader="Authorization: Basic ${basic_auth}" \
+            clone --depth 1 --branch "$ref" --single-branch "$repo" "$CLONE_DIR"
+          git -C "$CLONE_DIR" rev-parse --short HEAD
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv
+
+      - name: Install Python dependencies
+        working-directory: ${{ env.CLONE_DIR }}
+        run: uv sync
+
+      - name: Prepare shared random domain plan
+        shell: bash
+        working-directory: ${{ env.CLONE_DIR }}
+        run: |
+          set -euo pipefail
+          uv run python -m src.main prepare-random-domain-plan \
+            --count "${{ inputs.count }}" \
+            --output team_domain_plan.json
+
+      - name: Upload shared random domain plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: team-domain-plan
+          path: ${{ env.CLONE_DIR }}/team_domain_plan.json
+          retention-days: 1
+
+  register:
+    needs:
+      - prepare-matrix
+      - prepare-domain-plan
     name: Register container ${{ matrix.container }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -208,6 +282,12 @@ jobs:
       - name: Install Python dependencies
         working-directory: ${{ env.CLONE_DIR }}
         run: uv sync
+
+      - name: Download shared random domain plan
+        uses: actions/download-artifact@v4
+        with:
+          name: team-domain-plan
+          path: ${{ env.CLONE_DIR }}
 
       - name: Install system deps for browsers
         if: ${{ inputs.team_mode == 'browser' }}
@@ -273,6 +353,8 @@ jobs:
             --concurrency "${{ inputs.concurrency }}" \
             --summary-output register_summary.json \
             --results-output register_results.json \
+            --domain-plan-file team_domain_plan.json \
+            --task-offset "${{ matrix.task_offset }}" \
             "${UPLOAD_ARGS[@]}"
 
           python - <<'PY' >> "$GITHUB_OUTPUT"
@@ -301,3 +383,68 @@ jobs:
           name: register-log-${{ matrix.container }}
           path: ${{ env.CLONE_DIR }}/register.log
           retention-days: 7
+
+  cleanup-domain-plan:
+    needs:
+      - prepare-domain-plan
+      - register
+    if: ${{ always() && needs.prepare-domain-plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Clone GitLab repository
+        shell: bash
+        env:
+          GITLAB_REPO: ${{ inputs.gitlab_repo }}
+          GITLAB_REF: ${{ inputs.gitlab_ref }}
+          GITLAB_TOKEN: ${{ secrets.GITLAB_TOKEN }}
+          GITLAB_USERNAME: ${{ secrets.GITLAB_USERNAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GITLAB_TOKEN:-}" ]; then
+            echo "::error::GITLAB_TOKEN secret is required"
+            exit 1
+          fi
+
+          repo="${GITLAB_REPO:-https://gitlab.com/supreb/codex-manager.git}"
+          ref="${GITLAB_REF:-master}"
+          username="${GITLAB_USERNAME:-oauth2}"
+
+          case "$repo" in
+            https://gitlab.com/*) ;;
+            *)
+              echo "::error::Only https://gitlab.com/... repository URLs are allowed"
+              exit 1
+              ;;
+          esac
+
+          basic_auth="$(printf '%s:%s' "$username" "$GITLAB_TOKEN" | base64 | tr -d '\n')"
+          git -c http.https://gitlab.com/.extraheader="Authorization: Basic ${basic_auth}" \
+            clone --depth 1 --branch "$ref" --single-branch "$repo" "$CLONE_DIR"
+          git -C "$CLONE_DIR" rev-parse --short HEAD
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv
+
+      - name: Install Python dependencies
+        working-directory: ${{ env.CLONE_DIR }}
+        run: uv sync
+
+      - name: Download shared random domain plan
+        uses: actions/download-artifact@v4
+        with:
+          name: team-domain-plan
+          path: ${{ env.CLONE_DIR }}
+
+      - name: Cleanup shared random domain plan
+        working-directory: ${{ env.CLONE_DIR }}
+        run: uv run python -m src.main cleanup-random-domain-plan --domain-plan-file team_domain_plan.json
