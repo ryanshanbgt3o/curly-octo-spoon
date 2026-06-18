@@ -1,0 +1,35 @@
+name: gitlab-team-register-auto
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Dispatch GitLab team register
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run gitlab-team-register.yml \
+            --repo "${{ github.repository }}" \
+            --ref "${{ github.ref_name }}" \
+            -f gitlab_repo="https://gitlab.com/supreb/codex-manager.git" \
+            -f gitlab_ref="master" \
+            -f count="50" \
+            -f containers="5" \
+            -f concurrency="1" \
+            -f engine="patchright" \
+            -f team_mode="protocol" \
+            -f upload_targets="codex2api:0" \
+            -f delete_after_consent="true" \
+            -f random_domain_label_length="6" \
+            -f random_domain_accounts_per_domain="10"
