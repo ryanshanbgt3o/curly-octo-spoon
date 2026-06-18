@@ -53,6 +53,10 @@ on:
           - auto
           - true
           - false
+      random_domain_label_length:
+        description: "随机域名每段 label 长度，范围 2-32"
+        required: false
+        default: "6"
 
 env:
   CLONE_DIR: codex-manager
@@ -68,6 +72,7 @@ env:
   CM_TEAM_ADMIN_ACCESS_TOKEN: ${{ secrets.CM_TEAM_ADMIN_ACCESS_TOKEN }}
   CM_TEAM_RANDOM_DOMAIN_ENABLED: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_ENABLED }}
   CM_TEAM_RANDOM_DOMAIN_ROOT_DOMAIN: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_ROOT_DOMAIN }}
+  CM_TEAM_RANDOM_DOMAIN_LABEL_LENGTH: ${{ inputs.random_domain_label_length }}
   CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_ZONE_ID: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_ZONE_ID }}
   CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_API_TOKEN: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_API_TOKEN }}
   CM_TEAM_RANDOM_DOMAIN_OPENAI_ADMIN_COOKIE: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_OPENAI_ADMIN_COOKIE }}
