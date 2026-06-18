@@ -213,12 +213,11 @@ jobs:
             --count "${{ inputs.count }}" \
             --output team_domain_plan.json
 
-      - name: Upload shared random domain plan
-        uses: actions/upload-artifact@v4
+      - name: Cache shared random domain plan
+        uses: actions/cache/save@v4
         with:
-          name: team-domain-plan
           path: ${{ env.CLONE_DIR }}/team_domain_plan.json
-          retention-days: 1
+          key: team-domain-plan-${{ github.run_id }}
 
   register:
     needs:
@@ -283,11 +282,11 @@ jobs:
         working-directory: ${{ env.CLONE_DIR }}
         run: uv sync
 
-      - name: Download shared random domain plan
-        uses: actions/download-artifact@v4
+      - name: Restore shared random domain plan
+        uses: actions/cache/restore@v4
         with:
-          name: team-domain-plan
-          path: ${{ env.CLONE_DIR }}
+          path: ${{ env.CLONE_DIR }}/team_domain_plan.json
+          key: team-domain-plan-${{ github.run_id }}
 
       - name: Install system deps for browsers
         if: ${{ inputs.team_mode == 'browser' }}
@@ -366,24 +365,6 @@ jobs:
           print(f"exit_reason={summary.get('exit_reason', '')}")
           PY
 
-      - name: Upload redacted register summary
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: register-summary-${{ matrix.container }}
-          path: |
-            ${{ env.CLONE_DIR }}/register_summary.json
-            ${{ env.CLONE_DIR }}/register_results.json
-          retention-days: 7
-
-      - name: Upload register log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: register-log-${{ matrix.container }}
-          path: ${{ env.CLONE_DIR }}/register.log
-          retention-days: 7
-
   cleanup-domain-plan:
     needs:
       - prepare-domain-plan
@@ -439,11 +420,11 @@ jobs:
         working-directory: ${{ env.CLONE_DIR }}
         run: uv sync
 
-      - name: Download shared random domain plan
-        uses: actions/download-artifact@v4
+      - name: Restore shared random domain plan
+        uses: actions/cache/restore@v4
         with:
-          name: team-domain-plan
-          path: ${{ env.CLONE_DIR }}
+          path: ${{ env.CLONE_DIR }}/team_domain_plan.json
+          key: team-domain-plan-${{ github.run_id }}
 
       - name: Cleanup shared random domain plan
         working-directory: ${{ env.CLONE_DIR }}
