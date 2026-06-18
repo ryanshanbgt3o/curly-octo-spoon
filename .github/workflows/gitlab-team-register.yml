@@ -57,6 +57,10 @@ on:
         description: "随机域名每段 label 长度，范围 2-32"
         required: false
         default: "6"
+      random_domain_accounts_per_domain:
+        description: "每多少个账号共用一个随机域名，范围 1-1000"
+        required: false
+        default: "10"
 
 env:
   CLONE_DIR: codex-manager
@@ -71,6 +75,7 @@ env:
   CM_TEAM_PROXY: ${{ secrets.CM_TEAM_PROXY }}
   CM_TEAM_ADMIN_ACCESS_TOKEN: ${{ secrets.CM_TEAM_ADMIN_ACCESS_TOKEN }}
   CM_TEAM_RANDOM_DOMAIN_ENABLED: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_ENABLED }}
+  CM_TEAM_RANDOM_DOMAIN_ACCOUNTS_PER_DOMAIN: ${{ inputs.random_domain_accounts_per_domain }}
   CM_TEAM_RANDOM_DOMAIN_ROOT_DOMAIN: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_ROOT_DOMAIN }}
   CM_TEAM_RANDOM_DOMAIN_LABEL_LENGTH: ${{ inputs.random_domain_label_length }}
   CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_ZONE_ID: ${{ secrets.CM_TEAM_RANDOM_DOMAIN_CLOUDFLARE_ZONE_ID }}
